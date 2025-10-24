@@ -1,0 +1,39 @@
+name: Build image
+
+on:
+  push:
+
+env:
+  IMAGE_NAME: tbn-distrobox-fedora
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  build_image:
+    name: Build image with buildah
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run build
+        run: buildah build -f Containerfile -t ${{ env.IMAGE_NAME }}
+
+      - name: Activate podman socket
+        run: systemctl --user enable --now podman.socket
+
+      - name: Trivy scan image
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # v0.29.0
+        with:
+          image-ref: localhost/${{ env.IMAGE_NAME }}
+          timeout: 30m0s
+          docker-host: /usr/lib/systemd/user/podman.socket
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db
+
+      - name: Upload image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          buildah login -u ${{ github.actor }} -p ${{ github.token }} ghcr.io
+          buildah push ${{ env.IMAGE_NAME }} ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
